@@ -6,20 +6,21 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: bot-test
+    env_file:
+      - .env
     environment:
-      - BOT_CONFIG=${BOT_CONFIG}
+      # BOT_CONFIG can be set in .env file or as environment variable
+      - BOT_CONFIG=${BOT_CONFIG:-}
     volumes:
       # Mount recordings directory to local test-recordings folder
       - ./test-recordings:/home/bot-test
     cap_add:
       - SYS_ADMIN
     shm_size: 2g
-    network_mode: host
-    # Uncomment the following if you need to use a specific network
-    # networks:
-    #   - bot-network
+    # Use bridge network instead of host mode for better compatibility
+    networks:
+      - bot-network
 
-# Uncomment if using a custom network
-# networks:
-#   bot-network:
-#     driver: bridge
+networks:
+  bot-network:
+    driver: bridge

@@ -109,86 +109,115 @@ export async function initializeVideoRecording(
       };
 
       const captureVideoStream = async (): Promise<MediaStream> => {
-        const videos = await findVideoElements(10, 3000);
+        (window as any).logBot("[Video] Attempting to capture screen using getDisplayMedia API...");
         
-        if (videos.length === 0) {
-          throw new Error(
-            "[Google Meet Video Error] No active video elements found after multiple retries."
-          );
-        }
+        try {
+          // Use getDisplayMedia to capture the entire screen/tab
+          const displayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              displaySurface: 'browser', // or 'window' or 'screen'
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 30 }
+            },
+            audio: false // We're only capturing video here, audio is handled separately
+          });
 
-        // Create canvas to combine multiple video streams
+          (window as any).logBot("[Video] Successfully obtained display media stream");
+          
+          // Return the video track from the display stream
+          const videoTracks = displayStream.getVideoTracks();
+          if (videoTracks.length === 0) {
+            throw new Error("[Google Meet Video Error] No video tracks in display media stream");
+          }
+
+          (window as any).logBot(`[Video] Found ${videoTracks.length} video track(s) in display stream`);
+          
+          // Create a new MediaStream with just the video track
+          const videoStream = new MediaStream(videoTracks);
+          
+          return videoStream;
+        } catch (error: any) {
+          (window as any).logBot(`[Video] getDisplayMedia failed: ${error.message}`);
+          (window as any).logBot("[Video] Falling back to canvas-based DOM recording...");
+          
+          // Fallback: Record the entire page using canvas
+          return capturePageAsCanvas();
+        }
+      };
+
+      const capturePageAsCanvas = (): MediaStream => {
+        (window as any).logBot("[Video] Capturing entire page using canvas...");
+        
+        // Create canvas matching viewport size
         canvas = document.createElement('canvas');
         ctx = canvas.getContext('2d');
         if (!ctx) {
           throw new Error("[Google Meet Video Error] Failed to create canvas context");
         }
 
-        // Set canvas size to match the largest video or use a standard size
-        // Use videoWidth/videoHeight if available, otherwise fall back to clientWidth/clientHeight or defaults
-        const getVideoWidth = (v: HTMLVideoElement) => v.videoWidth || v.clientWidth || 640;
-        const getVideoHeight = (v: HTMLVideoElement) => v.videoHeight || v.clientHeight || 480;
-        
-        const maxWidth = Math.max(...videos.map(getVideoWidth), 1920);
-        const maxHeight = Math.max(...videos.map(getVideoHeight), 1080);
-        canvas.width = maxWidth;
-        canvas.height = maxHeight;
+        // Set canvas size to match viewport
+        canvas.width = window.innerWidth || 1920;
+        canvas.height = window.innerHeight || 1080;
 
-        (window as any).logBot(`Canvas size set to ${canvas.width}x${canvas.height} for ${videos.length} video element(s)`);
+        (window as any).logBot(`[Video] Canvas size set to ${canvas.width}x${canvas.height} (viewport size)`);
 
         // Create a stream from the canvas
         const canvasStream = canvas.captureStream(30); // 30 fps
 
-        // Draw videos to canvas
-        const drawVideos = () => {
+        // Draw entire page to canvas using html2canvas-like approach
+        const drawPage = async () => {
           if (!ctx || !canvas) return;
 
-          // Store references to avoid null checks in nested callbacks
           const canvasRef = canvas;
           const ctxRef = ctx;
 
-          // Clear canvas
-          ctxRef.fillStyle = '#000000';
-          ctxRef.fillRect(0, 0, canvasRef.width, canvasRef.height);
+          try {
+            // Clear canvas
+            ctxRef.fillStyle = '#ffffff';
+            ctxRef.fillRect(0, 0, canvasRef.width, canvasRef.height);
 
-          // Draw each video element
-          videos.forEach((video, index) => {
-            // Check if video is ready to be drawn (readyState >= 1 is enough, dimensions will be checked dynamically)
-            if (video.readyState >= 1 && !video.paused) {
-              // Get video dimensions, using fallbacks if not available yet
-              const videoWidth = video.videoWidth || video.clientWidth || 640;
-              const videoHeight = video.videoHeight || video.clientHeight || 480;
-              
-              // Only draw if we have some dimensions
-              if (videoWidth > 0 && videoHeight > 0) {
-                // Simple grid layout for multiple videos
-                const cols = Math.ceil(Math.sqrt(videos.length));
-                const rows = Math.ceil(videos.length / cols);
-                const cellWidth = canvasRef.width / cols;
-                const cellHeight = canvasRef.height / rows;
-                const col = index % cols;
-                const row = Math.floor(index / cols);
-                
-                const x = col * cellWidth;
-                const y = row * cellHeight;
-                const width = cellWidth;
-                const height = cellHeight;
-
-                try {
-                  ctxRef.drawImage(video, x, y, width, height);
-                } catch (error: any) {
-                  // Silently skip if drawImage fails (video might not be ready yet)
-                  // This is expected during initial frames
+            // Try to draw the entire document body
+            // Note: This is a simplified approach - for better results, consider using html2canvas library
+            const body = document.body;
+            if (body) {
+              // Draw all video elements if they exist
+              const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+              videos.forEach((video, index) => {
+                if (video.readyState >= 1 && !video.paused) {
+                  try {
+                    const rect = video.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                      ctxRef.drawImage(video, rect.left, rect.top, rect.width, rect.height);
+                    }
+                  } catch (e) {
+                    // Skip if drawImage fails
+                  }
                 }
-              }
-            }
-          });
+              });
 
-          animationFrameId = requestAnimationFrame(drawVideos);
+              // Draw any canvas elements
+              const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
+              canvases.forEach((canvasEl) => {
+                try {
+                  const rect = canvasEl.getBoundingClientRect();
+                  if (rect.width > 0 && rect.height > 0) {
+                    ctxRef.drawImage(canvasEl, rect.left, rect.top, rect.width, rect.height);
+                  }
+                } catch (e) {
+                  // Skip if drawImage fails
+                }
+              });
+            }
+          } catch (error: any) {
+            (window as any).logBot(`[Video] Error drawing page: ${error.message}`);
+          }
+
+          animationFrameId = requestAnimationFrame(drawPage);
         };
 
         // Start drawing loop
-        drawVideos();
+        drawPage();
 
         return canvasStream;
       };
@@ -196,11 +225,10 @@ export async function initializeVideoRecording(
       const startRecording = async () => {
         try {
           (window as any).logBot("Starting video recording...");
+          (window as any).logBot("[Video] Recording entire page/screen - no waiting for video elements");
 
-          // Wait 2 seconds for video elements to initialize
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          // Capture video stream from canvas
+          // No wait needed - start recording immediately
+          // Capture video stream (screen capture or canvas fallback)
           videoStream = await captureVideoStream();
 
           // Setup MediaRecorder for video recording

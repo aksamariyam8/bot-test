@@ -47,7 +47,18 @@ async function saveBlobToFile(
   // Write file
   const buffer = Buffer.from(base64Data, 'base64');
   fs.writeFileSync(filePath, buffer);
-  log(`✅ Saved ${blobName} to ${filePath} (${buffer.length} bytes)`);
+  const fullPath = path.resolve(filePath);
+  log(`✅ Saved ${blobName} to ${filePath}`);
+  log(`   Full path: ${fullPath}`);
+  log(`   Size: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+  
+  // Verify file exists
+  if (fs.existsSync(filePath)) {
+    const stats = fs.statSync(filePath);
+    log(`   ✅ File verified: ${stats.size} bytes on disk`);
+  } else {
+    log(`   ⚠️ Warning: File not found after write!`);
+  }
 }
 
 /**
@@ -69,7 +80,18 @@ async function saveSpeakerEventsToFile(
 
   // Write JSON file
   fs.writeFileSync(filePath, JSON.stringify(events, null, 2));
-  log(`✅ Saved speaker events to ${filePath} (${events.length} events)`);
+  const fullPath = path.resolve(filePath);
+  log(`✅ Saved speaker events to ${filePath}`);
+  log(`   Full path: ${fullPath}`);
+  log(`   Events: ${events.length}`);
+  
+  // Verify file exists
+  if (fs.existsSync(filePath)) {
+    const stats = fs.statSync(filePath);
+    log(`   ✅ File verified: ${stats.size} bytes on disk`);
+  } else {
+    log(`   ⚠️ Warning: File not found after write!`);
+  }
 }
 
 export async function startGoogleRecording(page: Page, botConfig: BotConfig): Promise<void> {
@@ -85,12 +107,19 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
   // Ensure recordings directory exists
   if (!fs.existsSync(recordingsDir)) {
     fs.mkdirSync(recordingsDir, { recursive: true });
+    log(`Created recordings directory: ${recordingsDir}`);
   }
   if (!fs.existsSync(recordingDir)) {
     fs.mkdirSync(recordingDir, { recursive: true });
+    log(`Created recording directory: ${recordingDir}`);
   }
 
-  log(`Recording files will be saved to: ${recordingDir}`);
+  log(`📁 Recording files will be saved to: ${recordingDir}`);
+  log(`📁 Full path: ${path.resolve(recordingDir)}`);
+  log(`📁 Files will be:`);
+  log(`   - ${path.join(recordingDir, 'audio.webm')}`);
+  log(`   - ${path.join(recordingDir, 'video.webm')}`);
+  log(`   - ${path.join(recordingDir, 'speaker-events.json')}`);
 
   // Initialize all recording services
   const audioService = await initializeAudioRecording(page, botConfig);
@@ -252,6 +281,20 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
           await saveSpeakerEventsToFile(page, path.join(recordingDir, 'speaker-events.json'));
           
           log(`✅ All recording files saved to: ${recordingDir}`);
+          log(`📁 Full directory path: ${path.resolve(recordingDir)}`);
+          
+          // List all files in the directory
+          try {
+            const files = fs.readdirSync(recordingDir);
+            log(`📁 Files in recording directory:`);
+            files.forEach(file => {
+              const filePath = path.join(recordingDir, file);
+              const stats = fs.statSync(filePath);
+              log(`   - ${file} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+            });
+          } catch (e) {
+            log(`⚠️ Could not list files in directory: ${e}`);
+          }
         } catch (e) {
           log(`Error stopping services or saving files: ${e}`);
         }
