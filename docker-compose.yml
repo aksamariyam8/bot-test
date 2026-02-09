@@ -14,6 +14,8 @@ services:
     volumes:
       # Mount recordings directory to local test-recordings folder
       - ./test-recordings:/home/bot-test
+      # Also mount /tmp/bot-recordings fallback directory to the same location
+      - ./test-recordings:/tmp/bot-recordings
     cap_add:
       - SYS_ADMIN
     shm_size: 2g

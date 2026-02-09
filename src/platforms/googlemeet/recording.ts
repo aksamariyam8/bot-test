@@ -137,23 +137,46 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
 
     // Try to find a writable directory
     if (!isWritable(recordingsDir)) {
-      log(`⚠️ ${recordingsDir} is not writable, trying fallback directories...`);
+      log(`⚠️ ${recordingsDir} is not writable, trying to fix permissions...`);
       
-      // Try /tmp/bot-recordings
-      const tmpDir = '/tmp/bot-recordings';
-      if (isWritable(tmpDir)) {
-        recordingsDir = tmpDir;
-        log(`✅ Using fallback directory: ${tmpDir}`);
-      } else {
-        // Try current working directory
-        const cwdDir = path.join(process.cwd(), 'recordings');
-        if (isWritable(cwdDir)) {
-          recordingsDir = cwdDir;
-          log(`✅ Using fallback directory: ${cwdDir}`);
+      // Try to fix permissions on /home/bot-test if it exists (might be a mount issue)
+      try {
+        if (fs.existsSync(recordingsDir)) {
+          // Try to change permissions (may not work on mounted volumes, but worth trying)
+          fs.chmodSync(recordingsDir, 0o777);
+          log(`Attempted to fix permissions on ${recordingsDir}`);
+          
+          // Test again
+          if (isWritable(recordingsDir)) {
+            log(`✅ ${recordingsDir} is now writable after permission fix`);
+          } else {
+            log(`⚠️ Permission fix didn't work, trying fallback directories...`);
+          }
+        }
+      } catch (permError: any) {
+        log(`⚠️ Could not fix permissions: ${permError?.message || String(permError)}`);
+      }
+      
+      // If still not writable, try fallback directories
+      if (!isWritable(recordingsDir)) {
+        // Try /tmp/bot-recordings (should be mounted to same location as /home/bot-test)
+        const tmpDir = '/tmp/bot-recordings';
+        if (isWritable(tmpDir)) {
+          recordingsDir = tmpDir;
+          log(`✅ Using fallback directory: ${tmpDir}`);
+          log(`📁 IMPORTANT: Files will be saved to ${tmpDir} (make sure this is mounted to ./test-recordings)`);
         } else {
-          // Last resort: use /tmp directly
-          recordingsDir = '/tmp';
-          log(`⚠️ Using /tmp as last resort (recordings may be cleaned up on reboot)`);
+          // Try current working directory
+          const cwdDir = path.join(process.cwd(), 'recordings');
+          if (isWritable(cwdDir)) {
+            recordingsDir = cwdDir;
+            log(`✅ Using fallback directory: ${cwdDir}`);
+          } else {
+            // Last resort: use /tmp directly
+            recordingsDir = '/tmp';
+            log(`⚠️ Using /tmp as last resort (recordings may be cleaned up on reboot)`);
+            log(`⚠️ WARNING: Files in /tmp will NOT be accessible from host unless mounted!`);
+          }
         }
       }
     } else {
