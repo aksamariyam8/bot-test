@@ -80,9 +80,13 @@ export async function initializeVideoRecording(
         const drawVideos = () => {
           if (!ctx || !canvas) return;
 
+          // Store references to avoid null checks in nested callbacks
+          const canvasRef = canvas;
+          const ctxRef = ctx;
+
           // Clear canvas
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctxRef.fillStyle = '#000000';
+          ctxRef.fillRect(0, 0, canvasRef.width, canvasRef.height);
 
           // Draw each video element
           videos.forEach((video, index) => {
@@ -90,8 +94,8 @@ export async function initializeVideoRecording(
               // Simple grid layout for multiple videos
               const cols = Math.ceil(Math.sqrt(videos.length));
               const rows = Math.ceil(videos.length / cols);
-              const cellWidth = canvas.width / cols;
-              const cellHeight = canvas.height / rows;
+              const cellWidth = canvasRef.width / cols;
+              const cellHeight = canvasRef.height / rows;
               const col = index % cols;
               const row = Math.floor(index / cols);
               
@@ -100,7 +104,7 @@ export async function initializeVideoRecording(
               const width = cellWidth;
               const height = cellHeight;
 
-              ctx.drawImage(video, x, y, width, height);
+              ctxRef.drawImage(video, x, y, width, height);
             }
           });
 
