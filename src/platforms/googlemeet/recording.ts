@@ -113,100 +113,27 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const recordingId = `meeting-${meetingId}-${timestamp}`;
     
-    // Try to determine a writable recordings directory
-    // Priority: 1) /home/bot-test (if writable), 2) /tmp/bot-recordings, 3) process.cwd()/recordings
-    let recordingsDir = '/home/bot-test';
-    let recordingDir: string;
-    
-    // Helper function to check if directory is writable
-    const isWritable = (dirPath: string): boolean => {
-      try {
-        if (!fs.existsSync(dirPath)) {
-          // Try to create it
-          fs.mkdirSync(dirPath, { recursive: true });
-        }
-        // Try to write a test file
-        const testFile = path.join(dirPath, '.write-test');
-        fs.writeFileSync(testFile, 'test');
-        fs.unlinkSync(testFile);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    // Try to find a writable directory
-    if (!isWritable(recordingsDir)) {
-      log(`⚠️ ${recordingsDir} is not writable, trying to fix permissions...`);
-      
-      // Try to fix permissions on /home/bot-test if it exists (might be a mount issue)
-      try {
-        if (fs.existsSync(recordingsDir)) {
-          // Try to change permissions (may not work on mounted volumes, but worth trying)
-          fs.chmodSync(recordingsDir, 0o777);
-          log(`Attempted to fix permissions on ${recordingsDir}`);
-          
-          // Test again
-          if (isWritable(recordingsDir)) {
-            log(`✅ ${recordingsDir} is now writable after permission fix`);
-          } else {
-            log(`⚠️ Permission fix didn't work, trying fallback directories...`);
-          }
-        }
-      } catch (permError: any) {
-        log(`⚠️ Could not fix permissions: ${permError?.message || String(permError)}`);
-      }
-      
-      // If still not writable, try fallback directories
-      if (!isWritable(recordingsDir)) {
-        // Try /tmp/bot-recordings (should be mounted to same location as /home/bot-test)
-        const tmpDir = '/tmp/bot-recordings';
-        if (isWritable(tmpDir)) {
-          recordingsDir = tmpDir;
-          log(`✅ Using fallback directory: ${tmpDir}`);
-          log(`📁 IMPORTANT: Files will be saved to ${tmpDir} (make sure this is mounted to ./test-recordings)`);
-        } else {
-          // Try current working directory
-          const cwdDir = path.join(process.cwd(), 'recordings');
-          if (isWritable(cwdDir)) {
-            recordingsDir = cwdDir;
-            log(`✅ Using fallback directory: ${cwdDir}`);
-          } else {
-            // Last resort: use /tmp directly
-            recordingsDir = '/tmp';
-            log(`⚠️ Using /tmp as last resort (recordings may be cleaned up on reboot)`);
-            log(`⚠️ WARNING: Files in /tmp will NOT be accessible from host unless mounted!`);
-          }
-        }
-      }
-    } else {
-      log(`✅ ${recordingsDir} is writable`);
-    }
-
-    recordingDir = path.join(recordingsDir, recordingId);
+    // Use Docker volume for recordings (mounted at /app/recordings)
+    const recordingsDir = '/app/recordings';
+    const recordingDir = path.join(recordingsDir, recordingId);
 
     log(`[Recording Setup] Meeting ID: ${meetingId}, Recording ID: ${recordingId}`);
     log(`[Recording Setup] Recordings directory: ${recordingsDir}`);
     log(`[Recording Setup] Recording directory: ${recordingDir}`);
 
-    // Ensure recordings directory exists and is writable
+    // Ensure recordings directory exists
     try {
       if (!fs.existsSync(recordingsDir)) {
-        fs.mkdirSync(recordingsDir, { recursive: true, mode: 0o755 });
+        fs.mkdirSync(recordingsDir, { recursive: true });
         log(`Created recordings directory: ${recordingsDir}`);
       }
       if (!fs.existsSync(recordingDir)) {
-        fs.mkdirSync(recordingDir, { recursive: true, mode: 0o755 });
+        fs.mkdirSync(recordingDir, { recursive: true });
         log(`Created recording directory: ${recordingDir}`);
       }
-      
-      // Verify we can write to the directory
-      const testFile = path.join(recordingDir, '.write-test');
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
-      log(`✅ Verified write permissions for ${recordingDir}`);
+      log(`✅ Recording directory ready: ${recordingDir}`);
     } catch (dirError: any) {
-      log(`❌ Error creating/verifying directories: ${dirError?.message || String(dirError)}`);
+      log(`❌ Error creating directories: ${dirError?.message || String(dirError)}`);
       log(`   Attempted directory: ${recordingDir}`);
       throw new Error(`Failed to create recording directories: ${dirError?.message || String(dirError)}`);
     }

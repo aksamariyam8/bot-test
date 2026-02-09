@@ -1,5 +1,9 @@
 version: '3.8'
 
+volumes:
+  bot-recordings:
+    driver: local
+
 services:
   bot:
     build:
@@ -12,10 +16,8 @@ services:
       # BOT_CONFIG can be set in .env file or as environment variable
       - BOT_CONFIG=${BOT_CONFIG:-}
     volumes:
-      # Mount recordings directory to local test-recordings folder
-      - ./test-recordings:/home/bot-test
-      # Also mount /tmp/bot-recordings fallback directory to the same location
-      - ./test-recordings:/tmp/bot-recordings
+      # Use Docker volume for recordings
+      - bot-recordings:/app/recordings
     cap_add:
       - SYS_ADMIN
     shm_size: 2g

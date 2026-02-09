@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to run the bot container with volume mount for recordings
+# Script to run the bot container with Docker volume for recordings
 
 # Check if BOT_CONFIG is set
 if [ -z "$BOT_CONFIG" ]; then
@@ -12,11 +12,12 @@ if [ -z "$BOT_CONFIG" ]; then
     exit 1
 fi
 
-# Create test-recordings directory if it doesn't exist
-mkdir -p ./test-recordings
-
-# Ensure the directory has write permissions (fixes permission issues on some systems)
-chmod 777 ./test-recordings 2>/dev/null || true
+# Create Docker volume for recordings if it doesn't exist
+VOLUME_NAME="bot-recordings"
+if ! docker volume inspect "$VOLUME_NAME" >/dev/null 2>&1; then
+    echo "Creating Docker volume: $VOLUME_NAME"
+    docker volume create "$VOLUME_NAME"
+fi
 
 # Get the image name (you may need to adjust this)
 IMAGE_NAME="${IMAGE_NAME:-bot-test}"
@@ -27,15 +28,15 @@ if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
     docker build -t "$IMAGE_NAME" .
 fi
 
-# Run the container with volume mounts
+# Run the container with Docker volume
 echo "Starting bot container..."
-echo "Recordings will be saved to: ./test-recordings"
-echo "Note: If /home/bot-test is not writable, recordings will be saved to /tmp/bot-recordings (also mounted)"
+echo "Recordings will be saved to Docker volume: $VOLUME_NAME"
+echo "To extract recordings, use: docker run --rm -v $VOLUME_NAME:/data alpine tar -czf - -C /data . > recordings.tar.gz"
+echo "Or copy files: docker run --rm -v $VOLUME_NAME:/data -v \$(pwd)/test-recordings:/output alpine cp -r /data /output"
 docker run --rm \
     --name bot-test \
     -e BOT_CONFIG="$BOT_CONFIG" \
-    -v "$(pwd)/test-recordings:/home/bot-test" \
-    -v "$(pwd)/test-recordings:/tmp/bot-recordings" \
+    -v "$VOLUME_NAME:/app/recordings" \
     --cap-add=SYS_ADMIN \
     --shm-size=2g \
     "$IMAGE_NAME"
