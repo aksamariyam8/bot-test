@@ -15,7 +15,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy package files and install dependencies with npm
-COPY package.json package-lock.json ./
+COPY package.json ./
+# Copy package-lock.json if it exists (must be present in build context)
+# If you get an error here, ensure package-lock.json exists in your directory
+# Run: npm install (if you don't have package-lock.json) to generate it
+COPY package-lock.json ./
 
 RUN npm install
 # Install TypeScript globally to avoid permission issues
