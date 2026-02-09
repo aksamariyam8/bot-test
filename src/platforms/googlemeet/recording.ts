@@ -95,50 +95,71 @@ async function saveSpeakerEventsToFile(
 }
 
 export async function startGoogleRecording(page: Page, botConfig: BotConfig): Promise<void> {
-  log("Starting Google Meet recording (audio, video, and speaker detection)");
+  try {
+    log("Starting Google Meet recording (audio, video, and speaker detection)");
 
-  // Generate unique recording ID based on meeting ID and timestamp
-  const meetingId = (botConfig as any).meeting_id || 'unknown';
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const recordingId = `meeting-${meetingId}-${timestamp}`;
-  const recordingsDir = '/home/bot-test';
-  const recordingDir = path.join(recordingsDir, recordingId);
+    // Generate unique recording ID based on meeting ID and timestamp
+    const meetingId = (botConfig as any).meeting_id || 'unknown';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const recordingId = `meeting-${meetingId}-${timestamp}`;
+    const recordingsDir = '/home/bot-test';
+    const recordingDir = path.join(recordingsDir, recordingId);
 
-  // Ensure recordings directory exists
-  if (!fs.existsSync(recordingsDir)) {
-    fs.mkdirSync(recordingsDir, { recursive: true });
-    log(`Created recordings directory: ${recordingsDir}`);
-  }
-  if (!fs.existsSync(recordingDir)) {
-    fs.mkdirSync(recordingDir, { recursive: true });
-    log(`Created recording directory: ${recordingDir}`);
-  }
+    log(`[Recording Setup] Meeting ID: ${meetingId}, Recording ID: ${recordingId}`);
+    log(`[Recording Setup] Recordings directory: ${recordingsDir}`);
+    log(`[Recording Setup] Recording directory: ${recordingDir}`);
 
-  log(`📁 Recording files will be saved to: ${recordingDir}`);
-  log(`📁 Full path: ${path.resolve(recordingDir)}`);
-  log(`📁 Files will be:`);
-  log(`   - ${path.join(recordingDir, 'audio.webm')}`);
-  log(`   - ${path.join(recordingDir, 'video.webm')}`);
-  log(`   - ${path.join(recordingDir, 'speaker-events.json')}`);
+    // Ensure recordings directory exists
+    try {
+      if (!fs.existsSync(recordingsDir)) {
+        fs.mkdirSync(recordingsDir, { recursive: true });
+        log(`Created recordings directory: ${recordingsDir}`);
+      }
+      if (!fs.existsSync(recordingDir)) {
+        fs.mkdirSync(recordingDir, { recursive: true });
+        log(`Created recording directory: ${recordingDir}`);
+      }
+    } catch (dirError: any) {
+      log(`❌ Error creating directories: ${dirError?.message || String(dirError)}`);
+      throw new Error(`Failed to create recording directories: ${dirError?.message || String(dirError)}`);
+    }
 
-  // Verify browser utils are available before initializing services
-  log("Verifying browser utils are loaded...");
-  const browserUtilsPath = require('path').join(__dirname, '../../browser-utils.global.js');
-  log(`Browser utils path: ${browserUtilsPath}`);
-  const browserUtilsExists = fs.existsSync(browserUtilsPath);
-  if (!browserUtilsExists) {
-    const errorMsg = `Browser utils file not found at ${browserUtilsPath}. Cannot initialize recording services.`;
-    log(`❌ ${errorMsg}`);
-    throw new Error(errorMsg);
-  }
-  log("✅ Browser utils file found");
+  try {
+    log(`📁 Recording files will be saved to: ${recordingDir}`);
+    log(`📁 Full path: ${path.resolve(recordingDir)}`);
+    log(`📁 Files will be:`);
+    log(`   - ${path.join(recordingDir, 'audio.webm')}`);
+    log(`   - ${path.join(recordingDir, 'video.webm')}`);
+    log(`   - ${path.join(recordingDir, 'speaker-events.json')}`);
 
-  // Check if browser utils are already loaded in the page
-  const browserUtilsLoaded = await page.evaluate(() => !!(window as any).VexaBrowserUtils);
-  if (browserUtilsLoaded) {
-    log("✅ Browser utils already loaded in page context");
-  } else {
-    log("⚠️ Browser utils not yet loaded in page context - will be loaded during service initialization");
+    // Verify browser utils are available before initializing services
+    log("Verifying browser utils are loaded...");
+    const browserUtilsPath = require('path').join(__dirname, '../../browser-utils.global.js');
+    log(`Browser utils path: ${browserUtilsPath}`);
+    const browserUtilsExists = fs.existsSync(browserUtilsPath);
+    if (!browserUtilsExists) {
+      const errorMsg = `Browser utils file not found at ${browserUtilsPath}. Cannot initialize recording services.`;
+      log(`❌ ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    log("✅ Browser utils file found");
+
+    // Check if browser utils are already loaded in the page
+    try {
+      const browserUtilsLoaded = await page.evaluate(() => !!(window as any).VexaBrowserUtils);
+      if (browserUtilsLoaded) {
+        log("✅ Browser utils already loaded in page context");
+      } else {
+        log("⚠️ Browser utils not yet loaded in page context - will be loaded during service initialization");
+      }
+    } catch (evalError: any) {
+      log(`⚠️ Warning: Could not check browser utils in page context: ${evalError?.message || String(evalError)}`);
+      log("   Will attempt to load browser utils during service initialization");
+    }
+  } catch (error: any) {
+    log(`❌ Error during recording setup (before service initialization): ${error?.message || String(error)}`);
+    log(`   Error stack: ${error?.stack || 'No stack trace'}`);
+    throw error;
   }
 
   // Initialize all recording services with error handling
@@ -399,5 +420,15 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
       }
     }, 1000);
   });
+  } catch (error: any) {
+    // Catch any synchronous errors that occur before async operations
+    log(`❌ [Recording Error] Unhandled error in startGoogleRecording: ${error?.message || String(error)}`);
+    log(`   Error name: ${error?.name || 'Unknown'}`);
+    log(`   Error stack: ${error?.stack || 'No stack trace available'}`);
+    if (error?.cause) {
+      log(`   Error cause: ${JSON.stringify(error.cause)}`);
+    }
+    throw error; // Re-throw to be caught by meetingFlow.ts
+  }
 }
 

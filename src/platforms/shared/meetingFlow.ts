@@ -154,8 +154,19 @@ export async function runMeetingFlow(
     const stopRemoval = strategies.startRemovalMonitor(page, () => { if (signalRemoval) signalRemoval(); });
 
     try {
+      log(`[Meeting Flow] Starting recording with ${platform} strategies...`);
       await Promise.race([
-        strategies.startRecording(page, botConfig),
+        (async () => {
+          try {
+            log(`[Meeting Flow] Calling startRecording strategy...`);
+            await strategies.startRecording(page, botConfig);
+            log(`[Meeting Flow] startRecording completed successfully`);
+          } catch (recordingError: any) {
+            log(`[Meeting Flow] Error caught in startRecording wrapper: ${recordingError?.message || String(recordingError)}`);
+            log(`[Meeting Flow] Error stack: ${recordingError?.stack || 'No stack trace'}`);
+            throw recordingError; // Re-throw to be caught by outer catch
+          }
+        })(),
         removalPromise
       ]);
 
@@ -174,6 +185,15 @@ export async function runMeetingFlow(
       if (msg === tokens.startupAloneToken || msg.includes(tokens.startupAloneToken)) {
         await gracefulLeaveFunction(page, 0, "startup_alone_timeout");
         return;
+      }
+
+      // Log detailed error information before graceful leave
+      log(`❌ [Recording Error] Error during recording setup:`);
+      log(`   Error message: ${error?.message || 'Unknown error'}`);
+      log(`   Error name: ${error?.name || 'Unknown'}`);
+      log(`   Error stack: ${error?.stack || 'No stack trace available'}`);
+      if (error?.cause) {
+        log(`   Error cause: ${JSON.stringify(error.cause)}`);
       }
 
       const errorDetails = {
