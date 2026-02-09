@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Recording files
+/home/bot-test/
+/app/storage/recordings/
+recordings/
+*.webm
+*.mp4
+*.wav
+*.mp3
+
+# Logs and temporary files
+logs/
+*.log
+/app/storage/logs/
+/app/storage/temp/
+
+# Screenshots (optional - uncomment if you don't want to track screenshots)
+# /app/storage/screenshots/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Playwright
+.playwright/
+test-results/
+playwright-report/
+
+# TypeScript
+*.js.map
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
+
