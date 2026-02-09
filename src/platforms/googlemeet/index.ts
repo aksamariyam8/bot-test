@@ -5,10 +5,9 @@ import { runMeetingFlow, PlatformStrategies } from "../shared/meetingFlow";
 // Import modular functions
 import { joinGoogleMeeting } from "./join";
 import { waitForGoogleMeetingAdmission, checkForGoogleAdmissionSilent } from "./admission";
-// import { startGoogleRecording } from "./recording";
+import { startGoogleRecording } from "./recording";
 import { prepareForRecording, leaveGoogleMeet } from "./leave";
 import { startGoogleRemovalMonitor } from "./removal";
-import { randomDelay } from "../../utils";
 
 // --- Google Meet Main Handler ---
 
@@ -25,10 +24,7 @@ export async function handleGoogleMeet(
     waitForAdmission: waitForGoogleMeetingAdmission,
     checkAdmissionSilent: checkForGoogleAdmissionSilent,
     prepare: prepareForRecording,
-    startRecording: async (page: Page, botConfig: BotConfig) => {
-      await randomDelay(1000);
-      return Promise.resolve();
-    },
+    startRecording: startGoogleRecording,
     startRemovalMonitor: startGoogleRemovalMonitor,
     leave: leaveGoogleMeet
   };
