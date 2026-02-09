@@ -121,19 +121,104 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
   log(`   - ${path.join(recordingDir, 'video.webm')}`);
   log(`   - ${path.join(recordingDir, 'speaker-events.json')}`);
 
-  // Initialize all recording services
-  const audioService = await initializeAudioRecording(page, botConfig);
-  const videoService = await initializeVideoRecording(page, botConfig);
-  const speakerService = await initializeSpeakerDetection(page, botConfig);
+  // Verify browser utils are available before initializing services
+  log("Verifying browser utils are loaded...");
+  const browserUtilsPath = require('path').join(__dirname, '../../browser-utils.global.js');
+  log(`Browser utils path: ${browserUtilsPath}`);
+  const browserUtilsExists = fs.existsSync(browserUtilsPath);
+  if (!browserUtilsExists) {
+    const errorMsg = `Browser utils file not found at ${browserUtilsPath}. Cannot initialize recording services.`;
+    log(`❌ ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+  log("✅ Browser utils file found");
 
-  // Start all recording services
-  await Promise.all([
-    audioService.start(),
-    videoService.start(),
-    speakerService.start()
-  ]);
+  // Check if browser utils are already loaded in the page
+  const browserUtilsLoaded = await page.evaluate(() => !!(window as any).VexaBrowserUtils);
+  if (browserUtilsLoaded) {
+    log("✅ Browser utils already loaded in page context");
+  } else {
+    log("⚠️ Browser utils not yet loaded in page context - will be loaded during service initialization");
+  }
 
-  log("All recording services started successfully");
+  // Initialize all recording services with error handling
+  let audioService: AudioRecordingService | null = null;
+  let videoService: VideoRecordingService | null = null;
+  let speakerService: SpeakerDetectionService | null = null;
+
+  try {
+    log("Initializing audio recording service...");
+    audioService = await initializeAudioRecording(page, botConfig);
+    log("✅ Audio recording service initialized");
+  } catch (error: any) {
+    log(`❌ Failed to initialize audio recording service: ${error?.message || String(error)}`);
+    log(`   Error stack: ${error?.stack || 'No stack trace'}`);
+    throw new Error(`Audio recording initialization failed: ${error?.message || String(error)}`);
+  }
+
+  try {
+    log("Initializing video recording service...");
+    videoService = await initializeVideoRecording(page, botConfig);
+    log("✅ Video recording service initialized");
+  } catch (error: any) {
+    log(`❌ Failed to initialize video recording service: ${error?.message || String(error)}`);
+    log(`   Error stack: ${error?.stack || 'No stack trace'}`);
+    throw new Error(`Video recording initialization failed: ${error?.message || String(error)}`);
+  }
+
+  try {
+    log("Initializing speaker detection service...");
+    speakerService = await initializeSpeakerDetection(page, botConfig);
+    log("✅ Speaker detection service initialized");
+  } catch (error: any) {
+    log(`❌ Failed to initialize speaker detection service: ${error?.message || String(error)}`);
+    log(`   Error stack: ${error?.stack || 'No stack trace'}`);
+    throw new Error(`Speaker detection initialization failed: ${error?.message || String(error)}`);
+  }
+
+  // Start all recording services with individual error handling
+  log("Starting all recording services...");
+  const startPromises: Promise<void>[] = [];
+  const serviceNames: string[] = [];
+
+  if (audioService) {
+    startPromises.push(
+      audioService.start().catch((error: any) => {
+        log(`❌ Failed to start audio recording service: ${error?.message || String(error)}`);
+        throw new Error(`Audio recording start failed: ${error?.message || String(error)}`);
+      })
+    );
+    serviceNames.push("audio");
+  }
+
+  if (videoService) {
+    startPromises.push(
+      videoService.start().catch((error: any) => {
+        log(`❌ Failed to start video recording service: ${error?.message || String(error)}`);
+        throw new Error(`Video recording start failed: ${error?.message || String(error)}`);
+      })
+    );
+    serviceNames.push("video");
+  }
+
+  if (speakerService) {
+    startPromises.push(
+      speakerService.start().catch((error: any) => {
+        log(`❌ Failed to start speaker detection service: ${error?.message || String(error)}`);
+        throw new Error(`Speaker detection start failed: ${error?.message || String(error)}`);
+      })
+    );
+    serviceNames.push("speaker");
+  }
+
+  try {
+    await Promise.all(startPromises);
+    log(`✅ All recording services started successfully: ${serviceNames.join(", ")}`);
+  } catch (error: any) {
+    log(`❌ Failed to start one or more recording services: ${error?.message || String(error)}`);
+    log(`   Error stack: ${error?.stack || 'No stack trace'}`);
+    throw error;
+  }
 
   // Setup meeting monitoring
   await page.evaluate(
@@ -255,9 +340,15 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
         clearInterval(checkStatus);
         // Stop all services
         try {
-          await audioService.stop();
-          await videoService.stop();
-          await speakerService.stop();
+          if (audioService) {
+            await audioService.stop().catch((e: any) => log(`Error stopping audio service: ${e?.message || e}`));
+          }
+          if (videoService) {
+            await videoService.stop().catch((e: any) => log(`Error stopping video service: ${e?.message || e}`));
+          }
+          if (speakerService) {
+            await speakerService.stop().catch((e: any) => log(`Error stopping speaker service: ${e?.message || e}`));
+          }
           
           // Save recording files
           await saveBlobToFile(page, '__vexaAudioBlob', path.join(recordingDir, 'audio.webm'));
@@ -271,9 +362,15 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
         clearInterval(checkStatus);
         // Stop all services
         try {
-          await audioService.stop();
-          await videoService.stop();
-          await speakerService.stop();
+          if (audioService) {
+            await audioService.stop().catch((e: any) => log(`Error stopping audio service: ${e?.message || e}`));
+          }
+          if (videoService) {
+            await videoService.stop().catch((e: any) => log(`Error stopping video service: ${e?.message || e}`));
+          }
+          if (speakerService) {
+            await speakerService.stop().catch((e: any) => log(`Error stopping speaker service: ${e?.message || e}`));
+          }
           
           // Save recording files
           await saveBlobToFile(page, '__vexaAudioBlob', path.join(recordingDir, 'audio.webm'));
