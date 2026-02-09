@@ -38,10 +38,15 @@ async function saveBlobToFile(
     return;
   }
 
-  // Ensure directory exists
+  // Ensure directory exists with proper error handling
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+    }
+  } catch (dirError: any) {
+    log(`⚠️ Warning: Could not create directory ${dir}: ${dirError?.message || String(dirError)}`);
+    // Continue anyway - the write might still work if parent directory exists
   }
 
   // Write file
@@ -72,10 +77,15 @@ async function saveSpeakerEventsToFile(
     return (window as any).__vexaSpeakerEvents || [];
   });
 
-  // Ensure directory exists
+  // Ensure directory exists with proper error handling
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+    }
+  } catch (dirError: any) {
+    log(`⚠️ Warning: Could not create directory ${dir}: ${dirError?.message || String(dirError)}`);
+    // Continue anyway - the write might still work if parent directory exists
   }
 
   // Write JSON file
@@ -102,25 +112,79 @@ export async function startGoogleRecording(page: Page, botConfig: BotConfig): Pr
     const meetingId = (botConfig as any).meeting_id || 'unknown';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const recordingId = `meeting-${meetingId}-${timestamp}`;
-    const recordingsDir = '/home/bot-test';
-    const recordingDir = path.join(recordingsDir, recordingId);
+    
+    // Try to determine a writable recordings directory
+    // Priority: 1) /home/bot-test (if writable), 2) /tmp/bot-recordings, 3) process.cwd()/recordings
+    let recordingsDir = '/home/bot-test';
+    let recordingDir: string;
+    
+    // Helper function to check if directory is writable
+    const isWritable = (dirPath: string): boolean => {
+      try {
+        if (!fs.existsSync(dirPath)) {
+          // Try to create it
+          fs.mkdirSync(dirPath, { recursive: true });
+        }
+        // Try to write a test file
+        const testFile = path.join(dirPath, '.write-test');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Try to find a writable directory
+    if (!isWritable(recordingsDir)) {
+      log(`⚠️ ${recordingsDir} is not writable, trying fallback directories...`);
+      
+      // Try /tmp/bot-recordings
+      const tmpDir = '/tmp/bot-recordings';
+      if (isWritable(tmpDir)) {
+        recordingsDir = tmpDir;
+        log(`✅ Using fallback directory: ${tmpDir}`);
+      } else {
+        // Try current working directory
+        const cwdDir = path.join(process.cwd(), 'recordings');
+        if (isWritable(cwdDir)) {
+          recordingsDir = cwdDir;
+          log(`✅ Using fallback directory: ${cwdDir}`);
+        } else {
+          // Last resort: use /tmp directly
+          recordingsDir = '/tmp';
+          log(`⚠️ Using /tmp as last resort (recordings may be cleaned up on reboot)`);
+        }
+      }
+    } else {
+      log(`✅ ${recordingsDir} is writable`);
+    }
+
+    recordingDir = path.join(recordingsDir, recordingId);
 
     log(`[Recording Setup] Meeting ID: ${meetingId}, Recording ID: ${recordingId}`);
     log(`[Recording Setup] Recordings directory: ${recordingsDir}`);
     log(`[Recording Setup] Recording directory: ${recordingDir}`);
 
-    // Ensure recordings directory exists
+    // Ensure recordings directory exists and is writable
     try {
       if (!fs.existsSync(recordingsDir)) {
-        fs.mkdirSync(recordingsDir, { recursive: true });
+        fs.mkdirSync(recordingsDir, { recursive: true, mode: 0o755 });
         log(`Created recordings directory: ${recordingsDir}`);
       }
       if (!fs.existsSync(recordingDir)) {
-        fs.mkdirSync(recordingDir, { recursive: true });
+        fs.mkdirSync(recordingDir, { recursive: true, mode: 0o755 });
         log(`Created recording directory: ${recordingDir}`);
       }
+      
+      // Verify we can write to the directory
+      const testFile = path.join(recordingDir, '.write-test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      log(`✅ Verified write permissions for ${recordingDir}`);
     } catch (dirError: any) {
-      log(`❌ Error creating directories: ${dirError?.message || String(dirError)}`);
+      log(`❌ Error creating/verifying directories: ${dirError?.message || String(dirError)}`);
+      log(`   Attempted directory: ${recordingDir}`);
       throw new Error(`Failed to create recording directories: ${dirError?.message || String(dirError)}`);
     }
 
