@@ -30,24 +30,81 @@ export async function initializeVideoRecording(
 
       const findVideoElements = async (maxRetries: number = 10, delayMs: number = 3000): Promise<HTMLVideoElement[]> => {
         for (let i = 0; i < maxRetries; i++) {
-          const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-          const activeVideos = videos.filter(v => 
-            v.readyState >= 2 && 
-            !v.paused && 
-            v.videoWidth > 0 && 
-            v.videoHeight > 0
-          );
+          // Get all video elements
+          const allVideos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+          (window as any).logBot(`[Video] Attempt ${i + 1}/${maxRetries}: Found ${allVideos.length} total video elements in DOM`);
+          
+          // Filter for active video elements with proper checks (similar to audio service)
+          const activeVideos = allVideos.filter((v: any) => {
+            // Check if element has srcObject
+            if (!v.srcObject) {
+              return false;
+            }
+            
+            // Check if srcObject is a MediaStream
+            if (!(v.srcObject instanceof MediaStream)) {
+              return false;
+            }
+            
+            // Check if MediaStream has video tracks
+            const videoTracks = v.srcObject.getVideoTracks();
+            if (videoTracks.length === 0) {
+              return false;
+            }
+            
+            // Check if element is not paused
+            if (v.paused) {
+              (window as any).logBot(`[Video] Element found but is paused (readyState: ${v.readyState})`);
+              return false;
+            }
+            
+            // Check readyState - prefer elements that have loaded metadata or more
+            // 0 = HAVE_NOTHING, 1 = HAVE_METADATA, 2 = HAVE_CURRENT_DATA, 3 = HAVE_FUTURE_DATA, 4 = HAVE_ENOUGH_DATA
+            if (v.readyState < 1) {
+              (window as any).logBot(`[Video] Element found but readyState is ${v.readyState} (HAVE_NOTHING)`);
+              return false;
+            }
+            
+            // Check if video tracks are enabled
+            const hasEnabledTracks = videoTracks.some((track: MediaStreamTrack) => track.enabled && !track.muted);
+            if (!hasEnabledTracks) {
+              (window as any).logBot(`[Video] Element found but all video tracks are disabled or muted`);
+              return false;
+            }
+            
+            return true;
+          });
 
           if (activeVideos.length > 0) {
-            (window as any).logBot(`Found ${activeVideos.length} active video element(s)`);
+            (window as any).logBot(`✅ Found ${activeVideos.length} active video element(s) with video tracks after ${i + 1} attempt(s).`);
+            // Log details about found elements
+            activeVideos.forEach((v: any, idx: number) => {
+              const tracks = v.srcObject.getVideoTracks();
+              (window as any).logBot(`  Element ${idx + 1}: paused=${v.paused}, readyState=${v.readyState}, tracks=${tracks.length}, enabled=${tracks.filter((t: MediaStreamTrack) => t.enabled).length}, dimensions=${v.videoWidth}x${v.videoHeight}`);
+            });
             return activeVideos;
+          }
+          
+          // Enhanced diagnostic logging
+          if (allVideos.length > 0) {
+            (window as any).logBot(`[Video] Found ${allVideos.length} video elements but none are active. Details:`);
+            allVideos.forEach((v: any, idx: number) => {
+              const hasSrcObject = !!v.srcObject;
+              const isMediaStream = v.srcObject instanceof MediaStream;
+              const videoTracks = isMediaStream ? v.srcObject.getVideoTracks().length : 0;
+              (window as any).logBot(`  Element ${idx + 1}: paused=${v.paused}, readyState=${v.readyState}, hasSrcObject=${hasSrcObject}, isMediaStream=${isMediaStream}, videoTracks=${videoTracks}, dimensions=${v.videoWidth}x${v.videoHeight}`);
+            });
+          } else {
+            (window as any).logBot(`[Video] No video elements found in DOM at all`);
           }
 
           if (i < maxRetries - 1) {
-            (window as any).logBot(`No active video elements found, retrying in ${delayMs}ms... (${i + 1}/${maxRetries})`);
+            (window as any).logBot(`[Video] Retrying in ${delayMs}ms... (Attempt ${i + 2}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, delayMs));
           }
         }
+        
+        (window as any).logBot(`❌ No active video elements found after ${maxRetries} attempts`);
         return [];
       };
 
@@ -68,10 +125,16 @@ export async function initializeVideoRecording(
         }
 
         // Set canvas size to match the largest video or use a standard size
-        const maxWidth = Math.max(...videos.map(v => v.videoWidth), 1920);
-        const maxHeight = Math.max(...videos.map(v => v.videoHeight), 1080);
+        // Use videoWidth/videoHeight if available, otherwise fall back to clientWidth/clientHeight or defaults
+        const getVideoWidth = (v: HTMLVideoElement) => v.videoWidth || v.clientWidth || 640;
+        const getVideoHeight = (v: HTMLVideoElement) => v.videoHeight || v.clientHeight || 480;
+        
+        const maxWidth = Math.max(...videos.map(getVideoWidth), 1920);
+        const maxHeight = Math.max(...videos.map(getVideoHeight), 1080);
         canvas.width = maxWidth;
         canvas.height = maxHeight;
+
+        (window as any).logBot(`Canvas size set to ${canvas.width}x${canvas.height} for ${videos.length} video element(s)`);
 
         // Create a stream from the canvas
         const canvasStream = canvas.captureStream(30); // 30 fps
@@ -90,21 +153,34 @@ export async function initializeVideoRecording(
 
           // Draw each video element
           videos.forEach((video, index) => {
-            if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-              // Simple grid layout for multiple videos
-              const cols = Math.ceil(Math.sqrt(videos.length));
-              const rows = Math.ceil(videos.length / cols);
-              const cellWidth = canvasRef.width / cols;
-              const cellHeight = canvasRef.height / rows;
-              const col = index % cols;
-              const row = Math.floor(index / cols);
+            // Check if video is ready to be drawn (readyState >= 1 is enough, dimensions will be checked dynamically)
+            if (video.readyState >= 1 && !video.paused) {
+              // Get video dimensions, using fallbacks if not available yet
+              const videoWidth = video.videoWidth || video.clientWidth || 640;
+              const videoHeight = video.videoHeight || video.clientHeight || 480;
               
-              const x = col * cellWidth;
-              const y = row * cellHeight;
-              const width = cellWidth;
-              const height = cellHeight;
+              // Only draw if we have some dimensions
+              if (videoWidth > 0 && videoHeight > 0) {
+                // Simple grid layout for multiple videos
+                const cols = Math.ceil(Math.sqrt(videos.length));
+                const rows = Math.ceil(videos.length / cols);
+                const cellWidth = canvasRef.width / cols;
+                const cellHeight = canvasRef.height / rows;
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                
+                const x = col * cellWidth;
+                const y = row * cellHeight;
+                const width = cellWidth;
+                const height = cellHeight;
 
-              ctxRef.drawImage(video, x, y, width, height);
+                try {
+                  ctxRef.drawImage(video, x, y, width, height);
+                } catch (error: any) {
+                  // Silently skip if drawImage fails (video might not be ready yet)
+                  // This is expected during initial frames
+                }
+              }
             }
           });
 

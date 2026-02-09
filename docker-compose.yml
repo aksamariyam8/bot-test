@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bot-test
+    environment:
+      - BOT_CONFIG=${BOT_CONFIG}
+    volumes:
+      # Mount recordings directory to local test-recordings folder
+      - ./test-recordings:/home/bot-test
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2g
+    network_mode: host
+    # Uncomment the following if you need to use a specific network
+    # networks:
+    #   - bot-network
+
+# Uncomment if using a custom network
+# networks:
+#   bot-network:
+#     driver: bridge
