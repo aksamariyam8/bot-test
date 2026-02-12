@@ -110,8 +110,14 @@ export async function initializeVideoRecording(
 
       const captureVideoStream = async (): Promise<MediaStream> => {
         (window as any).logBot("[Video] Attempting to capture screen using getDisplayMedia API...");
+        (window as any).logBot("[Video] Note: getDisplayMedia requires user interaction and may not work in automated environments");
         
         try {
+          // Check if getDisplayMedia is available
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            throw new Error("getDisplayMedia API not available");
+          }
+          
           // Use getDisplayMedia to capture the entire screen/tab
           const displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
@@ -138,20 +144,44 @@ export async function initializeVideoRecording(
           
           return videoStream;
         } catch (error: any) {
-          (window as any).logBot(`[Video] getDisplayMedia failed: ${error.message}`);
-          (window as any).logBot("[Video] Falling back to canvas-based DOM recording...");
+          (window as any).logBot(`[Video] getDisplayMedia failed: ${error.name} - ${error.message}`);
+          (window as any).logBot("[Video] This is expected in automated/headless environments");
+          (window as any).logBot("[Video] Falling back to canvas-based video element capture...");
           
-          // Fallback: Record the entire page using canvas
+          // Fallback: Record video elements using canvas
           return capturePageAsCanvas();
         }
       };
 
       const capturePageAsCanvas = (): MediaStream => {
-        (window as any).logBot("[Video] Capturing entire page using canvas...");
+        (window as any).logBot("[Video] Capturing page using canvas with video element capture...");
+        
+        // Find video elements first
+        const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+        const activeVideos = videos.filter(v => 
+          v.readyState >= 2 && 
+          !v.paused && 
+          v.videoWidth > 0 && 
+          v.videoHeight > 0 &&
+          v.offsetWidth > 0 &&
+          v.offsetHeight > 0
+        );
+        
+        (window as any).logBot(`[Video] Found ${videos.length} total video elements, ${activeVideos.length} are active`);
+        
+        if (activeVideos.length === 0) {
+          (window as any).logBot(`[Video] Warning: No active video elements found. Will create blank canvas stream.`);
+          videos.forEach((v, idx) => {
+            (window as any).logBot(`  Video ${idx + 1}: paused=${v.paused}, readyState=${v.readyState}, dimensions=${v.videoWidth}x${v.videoHeight}, visible=${v.offsetWidth > 0 && v.offsetHeight > 0}, hasSrcObject=${!!v.srcObject}`);
+          });
+        }
         
         // Create canvas matching viewport size
         canvas = document.createElement('canvas');
-        ctx = canvas.getContext('2d');
+        ctx = canvas.getContext('2d', { 
+          willReadFrequently: true,
+          alpha: false 
+        });
         if (!ctx) {
           throw new Error("[Google Meet Video Error] Failed to create canvas context");
         }
@@ -165,50 +195,77 @@ export async function initializeVideoRecording(
         // Create a stream from the canvas
         const canvasStream = canvas.captureStream(30); // 30 fps
 
-        // Draw entire page to canvas using html2canvas-like approach
-        const drawPage = async () => {
+        let frameCount = 0;
+        let lastVideoDrawn = false;
+
+        // Draw page content to canvas
+        const drawPage = () => {
           if (!ctx || !canvas) return;
 
           const canvasRef = canvas;
           const ctxRef = ctx;
+          frameCount++;
 
           try {
-            // Clear canvas
-            ctxRef.fillStyle = '#ffffff';
+            // Clear canvas with black background
+            ctxRef.fillStyle = '#000000';
             ctxRef.fillRect(0, 0, canvasRef.width, canvasRef.height);
 
-            // Try to draw the entire document body
-            // Note: This is a simplified approach - for better results, consider using html2canvas library
-            const body = document.body;
-            if (body) {
-              // Draw all video elements if they exist
-              const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-              videos.forEach((video, index) => {
-                if (video.readyState >= 1 && !video.paused) {
-                  try {
-                    const rect = video.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                      ctxRef.drawImage(video, rect.left, rect.top, rect.width, rect.height);
+            // Find and draw all video elements (these contain the actual meeting video)
+            const currentVideos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+            let videoDrawn = false;
+            
+            currentVideos.forEach((video) => {
+              try {
+                // Check if video is playing and has content
+                if (video.readyState >= 2 && !video.paused && video.videoWidth > 0 && video.videoHeight > 0) {
+                  const rect = video.getBoundingClientRect();
+                  
+                  // Only draw if video is visible and has dimensions
+                  if (rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight && rect.bottom > 0) {
+                    // Scale video to fit canvas while maintaining aspect ratio
+                    const videoAspect = video.videoWidth / video.videoHeight;
+                    const canvasAspect = canvasRef.width / canvasRef.height;
+                    
+                    let drawWidth, drawHeight, drawX, drawY;
+                    
+                    if (videoAspect > canvasAspect) {
+                      // Video is wider - fit to width
+                      drawWidth = canvasRef.width;
+                      drawHeight = canvasRef.width / videoAspect;
+                      drawX = 0;
+                      drawY = (canvasRef.height - drawHeight) / 2;
+                    } else {
+                      // Video is taller - fit to height
+                      drawHeight = canvasRef.height;
+                      drawWidth = canvasRef.height * videoAspect;
+                      drawX = (canvasRef.width - drawWidth) / 2;
+                      drawY = 0;
                     }
-                  } catch (e) {
-                    // Skip if drawImage fails
+                    
+                    // Draw video centered on canvas
+                    ctxRef.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+                    videoDrawn = true;
                   }
                 }
-              });
+              } catch (e: any) {
+                // Skip if drawImage fails (CORS or other issues)
+              }
+            });
 
-              // Draw any canvas elements
-              const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[];
-              canvases.forEach((canvasEl) => {
-                try {
-                  const rect = canvasEl.getBoundingClientRect();
-                  if (rect.width > 0 && rect.height > 0) {
-                    ctxRef.drawImage(canvasEl, rect.left, rect.top, rect.width, rect.height);
-                  }
-                } catch (e) {
-                  // Skip if drawImage fails
-                }
+            // Log periodically if no video is being drawn
+            if (!videoDrawn && frameCount % 300 === 0) { // Every 10 seconds at 30fps
+              (window as any).logBot(`[Video] Still no video elements to draw after ${frameCount} frames. Found ${currentVideos.length} video elements.`);
+              currentVideos.forEach((v, idx) => {
+                (window as any).logBot(`  Video ${idx + 1}: paused=${v.paused}, readyState=${v.readyState}, dimensions=${v.videoWidth}x${v.videoHeight}, visible=${v.offsetWidth > 0 && v.offsetHeight > 0}`);
               });
             }
+            
+            if (videoDrawn && !lastVideoDrawn) {
+              (window as any).logBot(`[Video] ✅ Started drawing video content to canvas`);
+            }
+            lastVideoDrawn = videoDrawn;
+
           } catch (error: any) {
             (window as any).logBot(`[Video] Error drawing page: ${error.message}`);
           }
@@ -225,9 +282,21 @@ export async function initializeVideoRecording(
       const startRecording = async () => {
         try {
           (window as any).logBot("Starting video recording...");
-          (window as any).logBot("[Video] Recording entire page/screen - no waiting for video elements");
+          
+          // Wait a bit for video elements to initialize after joining meeting
+          (window as any).logBot("[Video] Waiting 3 seconds for video elements to initialize...");
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // Check for video elements before starting
+          const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+          (window as any).logBot(`[Video] Found ${videos.length} video element(s) in DOM`);
+          
+          if (videos.length > 0) {
+            videos.forEach((v, idx) => {
+              (window as any).logBot(`  Video ${idx + 1}: paused=${v.paused}, readyState=${v.readyState}, dimensions=${v.videoWidth}x${v.videoHeight}, hasSrcObject=${!!v.srcObject}`);
+            });
+          }
 
-          // No wait needed - start recording immediately
           // Capture video stream (screen capture or canvas fallback)
           videoStream = await captureVideoStream();
 

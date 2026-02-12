@@ -6,7 +6,7 @@ if [ -z "$BOT_CONFIG" ]; then
     echo "ERROR: BOT_CONFIG environment variable is not set"
     echo ""
     echo "Usage:"
-    echo "  export BOT_CONFIG='{\"platform\":\"google_meet\",\"meetingUrl\":\"https://meet.google.com/xxx-yyy-zzz\",\"botName\":\"Test Bot\",\"meeting_id\":123,\"automaticLeave\":{\"waitingRoomTimeout\":300000,\"noOneJoinedTimeout\":600000,\"everyoneLeftTimeout\":120000}}'"
+    echo "  export BOT_CONFIG='{\"platform\":\"google_meet\",\"meetingUrl\":\"\",\"botName\":\"Test Bot\",\"meeting_id\":123,\"automaticLeave\":{\"waitingRoomTimeout\":300000,\"noOneJoinedTimeout\":600000,\"everyoneLeftTimeout\":120000}}'"
     echo "  ./run-docker.sh"
     echo ""
     exit 1
